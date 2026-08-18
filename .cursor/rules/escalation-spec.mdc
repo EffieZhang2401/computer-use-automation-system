@@ -1,0 +1,59 @@
+---
+description: Human-in-the-loop escalation and handoff spec — auto-loaded when editing src/session or src/operator
+globs: ["src/session/**", "src/operator/**"]
+alwaysApply: false
+---
+
+# Escalation & handoff
+
+The core requirement: a human must be able to take control of the **same
+live session** the automation was using — not a fresh one — perform manual
+steps, then hand control back so the run resumes. This is the seam that is
+most often faked as a TODO; it must be real here.
+
+## Control-ownership state machine
+
+```
+AUTOMATION ──stuck/risky──> PAUSED_AWAITING_HUMAN ──operator claim──> HUMAN
+     ^                                                                  │
+     └──────────────── operator "hand back" ─────────────────────────────┘
+```
+
+`SessionManager` holds `controlOwner` as an explicit field on the session.
+**Every action in both the discovery loop and the replay executor must
+assert `controlOwner === "automation"` before acting; if not, it blocks until
+control is handed back.** This assertion is what makes "pause / cede /
+resume on the same session" real instead of a diagram.
+
+## Operator console (minimal but real)
+
+- `InterventionRequest` is written to an in-memory queue + persisted to
+  `runtime/interventions.json`, and pushed to the console via SSE.
+- Console context must include: which capability/goal, the current step, the
+  reason it stopped, and either a live view or current state/screenshot.
+- Buttons: `Take control` / `Hand back & resume` / `Abort`.
+- If implementing the full CDP screencast path
+  (`Page.startScreencast` + `Input.dispatchMouseEvent`/`dispatchKeyEvent`):
+  stream low-frame-rate JPEGs to the console, and forward operator clicks/
+  keystrokes back onto the same live page.
+- If time is short, the degraded version is acceptable **as long as the
+  control-transfer model and evidence trail stay real**: the console simply
+  says "please complete step X manually in the open browser window, then
+  click Resume." Document this scope cut explicitly in REPORT.md — do not
+  silently ship the degraded version without noting it.
+
+## Evidence continuity across handoff
+
+Every human action taken during a `HUMAN`-owned window must be appended to
+the same run's event log (`actor: "human"` in `events.ndjson`), so the
+evidence trail for a run that included a handoff stays continuous —
+discovery/replay events and human actions interleaved by timestamp, not
+split into separate files.
+
+## Explicit scope boundary (state this in REPORT.md, don't apologize for it)
+
+A full real-time co-browsing console with multi-operator routing,
+authentication, and audio/video is out of scope for this assessment. What
+must be real: the control-transfer state machine, the intervention-request
+context payload, and the continuous evidence trail. What may be mocked: the
+console's visual polish and the live-view fidelity.

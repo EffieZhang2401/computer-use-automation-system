@@ -1,0 +1,59 @@
+---
+description: Core invariants for capability-runtime — always loaded, never violate
+alwaysApply: true
+---
+
+# Project invariants
+
+This is a computer-use automation system for interface.ai (AI agents for banks
+and credit unions). It records an LLM-driven "discovery" run once, compiles it
+into a deterministic, reusable "capability" artifact, and replays that artifact
+with no model in the decision loop.
+
+The following rules are non-negotiable. If a change would violate one of them,
+stop and ask before proceeding — do not silently work around it.
+
+1. **The replay path never calls an LLM.** Any LLM import inside `src/replay/`
+   is a bug. Replay must execute purely from the saved artifact.
+
+2. **The model never invents locators.** A locator can only come from
+   `src/agent/recorder.ts`, captured from the real DOM/accessibility-tree
+   element at the moment an action executes. The LLM is only allowed to
+   annotate (parameterize inputs, name outputs, describe intent/checkpoints),
+   and its output must pass Zod validation before being trusted.
+
+3. **All actions go through PolicyGate.** Both discovery and replay must call
+   `src/policy/gate.ts` before every action. No path may bypass it.
+
+4. **A business outcome is not a failure.** "Member not found" must return
+   `status: "business_outcome"`, never throw. Every replay result must be
+   classified into exactly one of three buckets: `business_outcome`,
+   `recoverable` (handled internally, then retried), or `failed` (hard
+   failure surfaced to the caller with step, expected, and observed state).
+
+5. **Sensitive data is never persisted.** Any field with `sensitivity !=
+   "public"` is stored in artifacts only as a parameter reference
+   (`{kind: "param", name}`), never as a literal value. Logs pass through
+   `src/core/redactor.ts`. Screenshots mask sensitive regions.
+
+6. **No agent frameworks.** Do not introduce LangChain, LangGraph, CrewAI, or
+   similar. The agent loop is hand-written; the action space is constrained
+   by an explicit tool schema, not by a framework's abstractions.
+
+7. **No Docker, no database, no queue.** Storage is versioned JSON on the
+   filesystem (`/artifacts`, `/evidence`, `/.cassettes`). This is a deliberate
+   architectural choice, not a shortcut — do not "helpfully" add
+   infrastructure.
+
+8. **Every LLM call goes through `src/llm/client.ts`.** Respect `LLM_MODE`
+   (`auto` | `replay` | `live`) and the `MAX_RUN_TOKENS` budget guard. Do not
+   call the Anthropic SDK directly from anywhere else.
+
+## Stack conventions
+
+- TypeScript, strict mode, ESM (`"type": "module"`).
+- Run with `tsx`, no build step.
+- Tests with `vitest`.
+- All user-facing text, code comments, commit messages, README, and REPORT
+  must be in **English** — this repository will be reviewed by an
+  English-speaking audience.

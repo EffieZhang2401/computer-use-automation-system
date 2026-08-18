@@ -1,0 +1,41 @@
+---
+description: Cost and scope discipline — always loaded
+alwaysApply: true
+---
+
+# Cost control
+
+This is a take-home assessment, not a production deployment. Keep everything
+cheap and simple. Do not add infrastructure "for scale" — the assignment
+explicitly says it does not reward that.
+
+1. **No cloud, no deployment.** Everything runs on `localhost`. No AWS, no
+   Vercel, no Docker, no CI beyond a minimal typecheck+test workflow.
+
+2. **LLM cost discipline:**
+   - Only the discovery agent loop calls the LLM. Replay, policy checks, and
+     the state classifier must never call it.
+   - Development and iteration use `LLM_MODE=replay` against recorded
+     cassettes in `.cassettes/` (see `src/llm/cassette.ts`) — zero cost, zero
+     network calls, fully reproducible without an API key.
+   - Only switch to `LLM_MODE=live` when intentionally producing a real
+     discovery run for `/evidence/`.
+   - Default model for development is `claude-haiku-4-5-20251001` (cheap).
+     The final evidence run may use a stronger model — this is a deliberate,
+     documented choice, not an inconsistency.
+   - Every LLM request must respect the `MAX_RUN_TOKENS` budget guard in
+     `src/llm/budget.ts`. A run that exceeds it aborts and raises an
+     escalation — this doubles as a real stopping condition.
+   - Never send full-resolution screenshots to the model by default. The
+     primary perception channel is the compressed accessibility-tree
+     observation; screenshots are an opt-in fallback only.
+
+3. **Cassette determinism.** The demo app (`demo-app/`) must be fully
+   deterministic — no timestamps, no random session IDs, no incrementing
+   counters that leak into observations — otherwise cassette cache keys never
+   hit and every dev iteration silently becomes a paid LLM call.
+
+4. **Storage is files, not a database.** `/artifacts`, `/evidence`, and
+   `/.cassettes` are plain versioned JSON on disk, committed to the repo.
+   `/runtime` (in-memory session/intervention state persisted for crash
+   recovery) is gitignored.

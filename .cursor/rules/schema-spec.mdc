@@ -1,0 +1,151 @@
+---
+description: Capability artifact schema spec — auto-loaded when editing core schema or the compiler
+globs: ["src/core/**", "src/agent/compiler.ts"]
+alwaysApply: false
+---
+
+# Artifact schema (the central deliverable)
+
+This is the most heavily evaluated part of the whole project. The artifact is
+a typed, serializable, agent-invocable **capability** — not just a step list.
+
+## Top-level shape
+
+```ts
+CapabilityArtifact {
+  schemaVersion: "1.0"
+  id: "member.read_savings_balance"       // stable name, callable by an agent
+  version: "1.2.0"                        // semver of this capability
+  status: "draft" | "approved" | "deprecated"   // unapproved artifacts must
+                                                 // never run unattended
+  name, description
+
+  target: {
+    appId: "corebank-lite"                // vendor-product identity, the key
+                                           // for cross-tenant reuse
+    appVersionRange?: ">=2.1 <3.0"
+    tenantId?: string                     // absent = base artifact
+    entryPoint: "{{baseUrl}}/members/search"   // templated, never hardcoded
+  }
+
+  surface: { kind: "web" | "legacy-web" | "desktop", capabilities: [...] }
+
+  inputs:  ParamSpec[]
+  outputs: OutputSpec[]
+  steps:   Step[]
+  successCheckpoint: Assertion
+  outcomes: OutcomeRule[]                 // declarative business outcomes
+  recoveries: RecoveryRule[]              // declarative recoverable conditions
+
+  policy: {
+    allowedOrigins: string[]
+    allowedActions: ActionKind[]
+    maxSteps: number
+    highestRisk: "safe" | "reversible" | "irreversible"
+  }
+
+  provenance: { discoveryRunId, model, promptVersion, recordedAt, recordedBy }
+  health?: { replays, successes, lastVerifiedAt, fallbackTierHistogram }
+}
+```
+
+## Inputs / outputs (sensitivity-tagged)
+
+```ts
+ParamSpec  { name, type: "string"|"number"|"boolean"|"enum", enum?, required,
+             description, sensitivity: "public"|"pii"|"secret", example? }
+OutputSpec { name, type, description, sensitivity,
+             source: { stepId, extract } }
+```
+`sensitivity != "public"` fields are stored only as parameter references,
+never as literal values. `example` is allowed only for `public` fields.
+
+## Step
+
+```ts
+Step {
+  id: "s03"
+  intent: "Enter the member ID into the search box"   // human-readable, for review
+  action: "navigate"|"click"|"fill"|"select"|"press"|"extract"|"waitFor"|"assert"
+  target?: Locator
+  value?: { kind: "literal", value } | { kind: "param", name: "memberId" }
+  extractAs?: string
+  precondition?: Assertion
+  postcondition?: Assertion              // never assume a click worked
+  wait?: { until: "networkIdle"|"assertion", timeoutMs, retries }
+  risk: "safe" | "reversible" | "irreversible"
+}
+```
+
+## Locator — the part most likely to get probed in review
+
+```ts
+Locator {
+  frame?: string[]                       // iframe/frameset path, required for legacy
+  primary:   Strategy
+  fallbacks: Strategy[]                  // ordered ladder
+  verify?: { role?, nameContains?, textMatches? }   // re-check after resolving,
+                                                     // prevents "matched the
+                                                     // wrong element and kept going"
+}
+
+Strategy =
+  | { by: "role",        role, name, nameMatch: "exact"|"contains" }   // ← first choice,
+                                                                        //   portable across
+                                                                        //   web/desktop
+  | { by: "label",       text }
+  | { by: "textAnchor",  anchorText, direction: "right"|"below", nth } // ← for legacy
+                                                                        //   table layouts
+  | { by: "css",         selector }
+  | { by: "domPath",     path }                                       // ← last resort
+  | { by: "coordinates", x, y, relativeTo: "viewport"|"anchor" }      // ← desktop /
+                                                                        //   no-DOM fallback
+```
+
+**Why `role + name` is ranked first:** it is the one concept shared between
+the Chromium accessibility tree, Windows UIA (ControlType + Name), and
+macOS AX (AXRole + AXTitle). This is what lets an artifact's steps survive a
+swap of the underlying `Surface` implementation without rewriting locators.
+
+**Why `verify` exists:** the risk of a fallback ladder isn't "can't find the
+element," it's "matched the wrong element and kept executing against it."
+After resolving a candidate handle, re-check its role/text; if it fails,
+treat it as unresolved and move to the next tier — never silently proceed on
+a mismatched element.
+
+**Fallback-tier reporting is the drift signal.** Every resolution records
+which tier (primary vs. which fallback) succeeded into
+`health.fallbackTierHistogram`. A rising rate of non-primary hits for a given
+tenant/app version is the detection signal for UI drift — not a diff against
+a stored screenshot.
+
+## Assertion / Outcome / Recovery (declarative — no model needed at replay time)
+
+```ts
+Assertion =
+  | { kind: "visible", locator }
+  | { kind: "textPresent", text | pattern, scope?: Locator }
+  | { kind: "textAbsent",  text | pattern }
+  | { kind: "urlMatches",  pattern }
+  | { kind: "all"|"any", of: Assertion[] }
+
+OutcomeRule  { code: "MEMBER_NOT_FOUND", detect: Assertion, terminal: true,
+               message, mapsTo: "business_outcome" }
+RecoveryRule { id: "dismiss-system-notice", detect: Assertion,
+               action: { click | wait | reauth | reload }, maxAttempts: 2 }
+```
+
+## Compilation (two phases — see also discovery-spec.mdc)
+
+1. **Mechanical phase (no LLM):** every recorded action becomes a `Step`.
+   `Locator.primary`/`fallbacks` come entirely from attributes captured off
+   the real element at the moment it was acted on.
+2. **Annotation phase (LLM, output must pass Zod validation):** the model
+   only does four things — decide which literal values should become input
+   parameters, write each step's `intent` text, propose the
+   `successCheckpoint`, and propose candidate `outcomes`. On validation
+   failure, retry once; on a second failure, fall back to the pure mechanical
+   artifact with `status: "draft"`.
+
+The compiled artifact always starts as `status: "draft"` and must be
+explicitly approved (CLI or human) before unattended replay is allowed.

@@ -1,0 +1,67 @@
+---
+description: Deterministic replay spec — auto-loaded when editing src/replay
+globs: ["src/replay/**"]
+alwaysApply: false
+---
+
+# Replay: deterministic execution (no LLM, ever — see invariants.mdc #1)
+
+```
+for step in artifact.steps:
+    resolve locator (ladder + verify — see surface-spec.mdc)
+    check precondition
+    guard: policy.check(step)        // same choke point discovery uses
+    act
+    // after every step, run the state classifier, in priority order:
+    1. outcomes[]     match → return immediately, status="business_outcome"
+                              (this is a normal, successful end — not an error)
+    2. recoveries[]   match → run the recovery action, retry this step
+                              (bounded by maxAttempts)
+    3. postcondition  fails → hard failure
+verify successCheckpoint
+collect outputs
+```
+
+## Result contract
+
+```ts
+ReplayResult {
+  status: "success" | "business_outcome" | "escalated" | "failed"
+  runId, artifactId, artifactVersion, durationMs, evidenceDir
+  outputs?: Record<string, unknown>          // status=success
+  outcome?: { code, message }                // status=business_outcome
+  failure?: {                                // status=failed
+    stepId, stepIntent,
+    kind: "locator_unresolved"|"checkpoint_failed"|"policy_violation"
+        | "timeout"|"app_error"
+    expected: string, observed: string,
+    resolvedTier?: number,
+    evidence: { screenshot, a11ySnapshot, url }
+  }
+  steps: StepResult[]           // per-step timing, fallback tier hit, retries
+  driftSignals: { stepId, primaryFailed, hitTier }[]
+}
+```
+
+## Determinism requirements
+
+- No decision-making from a model, anywhere in this directory.
+- No fixed `sleep()` calls — every wait is assertion-based: wait until the
+  postcondition holds or the timeout elapses.
+- The locator ladder + `verify` step is what keeps resolution repeatable
+  instead of silently drifting onto the wrong element.
+- Every step has a `postcondition` check — never assume a click succeeded
+  just because it didn't throw.
+- `irreversible`-risk steps require `artifact.status === "approved"` before
+  they may execute unattended, and a pre-write evidence snapshot must be
+  captured.
+
+## The most common mistake to avoid
+
+Do not collapse the three-way classification into a single try/catch. A
+"member not found" result and a 500 error from the app are fundamentally
+different things and must produce different `status` values. If you find
+yourself writing `catch (e) { return { status: "failed", ... } }` around
+logic that's supposed to detect `outcomes[]`, that's a bug — outcome
+detection must run as its own classification step, not as exception
+handling.

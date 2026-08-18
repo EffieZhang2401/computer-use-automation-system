@@ -1,0 +1,66 @@
+---
+description: Discovery agent loop spec — auto-loaded when editing src/agent or src/llm
+globs: ["src/agent/**", "src/llm/**"]
+alwaysApply: false
+---
+
+# Discovery: LLM-driven agent loop
+
+## The loop
+
+```
+loop (until done / maxSteps / timeout / stuck / policy-block):
+  obs   = surface.observe()             // compressed a11y snapshot + url +
+                                         // last action result
+  call  = llm.act(goal, obs, history)   // strict tool call, not free-form JSON
+  gate  = policy.check(call)            // rejection is fed back to the model
+                                         // as a tool result, not a crash
+  res   = surface.execute(call)         // mechanically capture the FULL set
+                                         // of locator candidates for the
+                                         // acted-on element
+  recorder.push({call, resolvedLocatorCandidates,
+                 obsHashBefore, obsHashAfter})
+```
+
+## Tools (the model's action space)
+
+`navigate(url)` / `click(ref)` / `fill(ref, text)` / `select(ref, option)` /
+`press(key)` / `extract(ref, outputName)` / `wait_for(text|ref)` /
+`report_business_outcome(code, evidence)` /
+`escalate(reason, what_human_should_do)` /
+`done(summary, checkpointDescription, outputs)`
+
+The model acts only by `ref` — never by inventing a selector string. This is
+what eliminates locator hallucination; see invariants.mdc rule #2.
+
+## Stuck / stopping conditions (must be real, not a TODO)
+
+- `maxSteps` (default 25) or wall-clock timeout
+- **No progress:** 3 consecutive observations hash identically
+- **Loop:** the same `(action, ref)` pair repeats ≥2 times
+- PolicyGate rejects consecutive actions
+- The model calls `escalate` itself
+- The run exceeds `MAX_RUN_TOKENS` (see cost-control.mdc)
+
+Any of these must produce an `InterventionRequest` and hand off to the human
+escalation flow (see escalation-spec.mdc) — not just abort silently.
+
+## Compiling the recording into an artifact
+
+Two phases — see schema-spec.mdc "Compilation" for the full contract:
+
+1. **Mechanical (no LLM):** turn each recorded action into a `Step`. Locators
+   come only from what was captured off the real element at execution time.
+2. **Annotation (LLM, Zod-validated output):** the model only proposes input
+   parameterization, step `intent` text, the `successCheckpoint`, and
+   candidate `outcomes`. Validation failure → retry once → fall back to a
+   mechanical-only artifact with `status: "draft"`.
+
+## LLM client discipline
+
+- All calls go through `src/llm/client.ts`. Never call the Anthropic SDK
+  directly from `loop.ts`, `compiler.ts`, or anywhere else.
+- Respect `LLM_MODE` (`auto` | `replay` | `live`) — see cost-control.mdc.
+- The observation format sent to the model is the compressed accessibility
+  snapshot from `Surface.observe()`, not raw HTML and not a screenshot by
+  default.

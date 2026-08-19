@@ -1,0 +1,62 @@
+{
+  "cacheKey": "0aa95cb9e0849a6e101bfa44ddd6a5aa5d868edc765fba81cf625b9154446771",
+  "model": "gemini-3.5-flash-lite",
+  "promptVersion": "discovery-v1",
+  "request": {
+    "goal": "look up member 12345 and read their current savings balance",
+    "observation": {
+      "url": "http://localhost:3100/members/12345",
+      "text": "url: http://localhost:3100/members/12345\n\n[ref=55] table \"Accounts\"\n[ref=62] cell \"Savings\"\n[ref=63] cell \"$4,210.55\"\n[ref=65] cell \"Checking\"\n[ref=66] cell \"$1,002.00\"\n[ref=68] cell \"Certificate\"\n[ref=69] cell \"$8,000.00\"\n[ref=71] link \"Open new sub-account\"\n[ref=73] link \"Back to search\"",
+      "hash": "ad9cdc4e66fcd4b1f17e955bc8aa1dfc9bb04d233fc4d08d1976e1ff98bf5177"
+    },
+    "history": [
+      {
+        "step": 0,
+        "toolCall": {
+          "tool": "fill",
+          "ref": 26,
+          "text": "12345"
+        },
+        "result": "filled",
+        "observationHashAfter": "48b828fa786c630eafedbb6fc5f5cf24821b83600a411eff928bc866ae2f6f9c"
+      },
+      {
+        "step": 1,
+        "toolCall": {
+          "tool": "click",
+          "ref": 31
+        },
+        "result": "clicked",
+        "observationHashAfter": "ad9cdc4e66fcd4b1f17e955bc8aa1dfc9bb04d233fc4d08d1976e1ff98bf5177"
+      },
+      {
+        "step": 2,
+        "toolCall": {
+          "tool": "extract",
+          "ref": 63,
+          "outputName": "savingsBalance"
+        },
+        "result": "extracted savingsBalance=$4,210.55",
+        "observationHashAfter": "ad9cdc4e66fcd4b1f17e955bc8aa1dfc9bb04d233fc4d08d1976e1ff98bf5177"
+      }
+    ],
+    "runId": "727ca5fc-2cb9-45ba-b277-4c8fe3b8d4a1",
+    "timestamp": "2026-08-19T23:06:06.572Z",
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "discovery-v1"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "done",
+      "summary": "Successfully found the savings balance for member 12345, which is $4,210.55.",
+      "checkpointDescription": "Looked up member 12345 and read their current savings balance ($4,210.55).",
+      "outputs": {}
+    },
+    "usage": {
+      "inputTokens": 933,
+      "outputTokens": 74
+    },
+    "rawText": ""
+  },
+  "recordedAt": "2026-08-19T23:06:07.458Z"
+}

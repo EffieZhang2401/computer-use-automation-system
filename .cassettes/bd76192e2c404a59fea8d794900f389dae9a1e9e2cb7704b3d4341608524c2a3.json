@@ -1,0 +1,30 @@
+{
+  "cacheKey": "bd76192e2c404a59fea8d794900f389dae9a1e9e2cb7704b3d4341608524c2a3",
+  "model": "gemini-3.5-flash-lite",
+  "promptVersion": "compile-v1",
+  "request": {
+    "goal": "annotate recording",
+    "observation": {
+      "url": "compile",
+      "text": "{\n  \"goal\": \"look up member 12345 and read their current savings balance\",\n  \"steps\": [\n    {\n      \"id\": \"s01\",\n      \"action\": \"fill\",\n      \"value\": {\n        \"kind\": \"literal\",\n        \"value\": \"12345\"\n      },\n      \"target\": {\n        \"by\": \"role\",\n        \"role\": \"textbox\",\n        \"name\": \"Member ID\",\n        \"nameMatch\": \"exact\"\n      }\n    },\n    {\n      \"id\": \"s02\",\n      \"action\": \"click\"\n    },\n    {\n      \"id\": \"s03\",\n      \"action\": \"extract\",\n      \"extractAs\": \"savings_balance\",\n      \"target\": {\n        \"by\": \"domPath\",\n        \"path\": \"body[1]/table[1]/tbody[1]/tr[2]/td[1]/table[1]/tbody[1]/tr[2]/td[2]\"\n      }\n    }\n  ]\n}",
+      "hash": "compile-annotation"
+    },
+    "history": [],
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "compile-v1"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "done",
+      "summary": "annotation",
+      "checkpointDescription": "",
+      "outputs": {}
+    },
+    "usage": {
+      "inputTokens": 337,
+      "outputTokens": 334
+    },
+    "rawText": "{\"id\":\"look-up-member-savings-balance\",\"name\":\"Look Up Member Savings Balance\",\"description\":\"Looks up a member by their ID and reads their current savings balance.\",\"inputs\":[{\"name\":\"memberId\",\"type\":\"string\",\"description\":\"The member ID to search for\",\"sensitivity\":\"pii\",\"required\":true}],\"outputs\":[{\"name\":\"savings_balance\",\"type\":\"string\",\"description\":\"The current savings balance of the member\"}],\"stepIntents\":{\"s01\":\"Enter the member ID into the search textbox\",\"s02\":\"Trigger the search action\",\"s03\":\"Extract the savings balance from the results table\"},\"successCheckpoint\":{\"type\":\"elementExists\",\"target\":{\"by\":\"domPath\",\"path\":\"body[1]/table[1]/tbody[1]/tr[2]/td[1]/table[1]/tbody[1]/tr[2]/td[2]\"}},\"outcomes\":[{\"condition\":\"success\",\"result\":\"Successfully retrieved the member's savings balance.\"}]}"
+  },
+  "recordedAt": "2026-08-19T23:05:15.107Z"
+}

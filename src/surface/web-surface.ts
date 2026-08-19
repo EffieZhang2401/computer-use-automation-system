@@ -135,6 +135,128 @@ export class WebSurface implements Surface {
     return resolveLocator(locator, backend);
   }
 
+  /** Read visible text from an observed ref. */
+  async extractText(ref: number): Promise<string> {
+    let text = "";
+    await this.performOnRef(ref, async (locator) => {
+      text = (await locator.innerText()).trim();
+    });
+    return text;
+  }
+
+  /**
+   * Capture the full locator candidate ladder from the real element at `ref`.
+   * Used by the recorder — locators are never invented by the model.
+   */
+  async captureLocator(ref: number): Promise<SchemaLocator | null> {
+    const target = this.refTargets.get(ref);
+    if (target === undefined) return null;
+
+    const frame = await resolveFramePath(this.page, target.framePath);
+    const pwLocator = locatorForTarget(frame, target);
+    const handle = await pwLocator.elementHandle({ timeout: 2000 }).catch(() => null);
+    if (handle === null) return null;
+
+    try {
+      const meta = await handle.evaluate((el) => {
+        const html = el as HTMLElement;
+        const tag = html.tagName.toLowerCase();
+        const roleAttr = html.getAttribute("role");
+        const role =
+          roleAttr ??
+          (tag === "input"
+            ? html.getAttribute("type") === "button"
+              ? "button"
+              : "textbox"
+            : tag === "button"
+              ? "button"
+              : tag === "a"
+                ? "link"
+                : tag);
+        const aria = html.getAttribute("aria-label") ?? "";
+        const id = html.id;
+        const nameAttr = html.getAttribute("name") ?? "";
+        const labelEl =
+          id !== "" ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+        const labelText = labelEl?.textContent?.trim() ?? "";
+        const accessibleName = aria !== "" ? aria : labelText;
+
+        const cssCandidates: string[] = [];
+        if (id !== "") cssCandidates.push(`#${CSS.escape(id)}`);
+        if (nameAttr !== "") cssCandidates.push(`${tag}[name="${nameAttr}"]`);
+
+        const segments: string[] = [];
+        let node: Element | null = html;
+        while (node !== null && node.tagName !== "HTML") {
+          const parent: Element | null = node.parentElement;
+          if (parent === null) break;
+          const tagName = node.tagName;
+          const siblings = Array.from(parent.children).filter(
+            (c: Element) => c.tagName === tagName,
+          );
+          const index = siblings.indexOf(node) + 1;
+          segments.unshift(`${node.tagName.toLowerCase()}[${index}]`);
+          node = parent;
+        }
+        const domPath = segments.join("/");
+
+        const rect = html.getBoundingClientRect();
+        return {
+          role: role.toLowerCase(),
+          accessibleName,
+          labelText,
+          cssCandidates,
+          domPath,
+          x: Math.round(rect.x + rect.width / 2),
+          y: Math.round(rect.y + rect.height / 2),
+        };
+      });
+
+      const fallbacks: Strategy[] = [];
+      if (meta.labelText !== "" && meta.labelText !== meta.accessibleName) {
+        fallbacks.push({ by: "label", text: meta.labelText });
+      }
+      for (const selector of meta.cssCandidates) {
+        fallbacks.push({ by: "css", selector });
+      }
+      if (meta.domPath !== "") {
+        fallbacks.push({ by: "domPath", path: meta.domPath });
+      }
+      fallbacks.push({
+        by: "coordinates",
+        x: meta.x,
+        y: meta.y,
+        relativeTo: "viewport",
+      });
+
+      const primary: Strategy =
+        meta.accessibleName !== ""
+          ? {
+              by: "role",
+              role: meta.role,
+              name: meta.accessibleName,
+              nameMatch: "exact",
+            }
+          : meta.cssCandidates[0] !== undefined
+            ? { by: "css", selector: meta.cssCandidates[0] }
+            : { by: "domPath", path: meta.domPath };
+
+      const verify =
+        meta.accessibleName !== ""
+          ? { role: meta.role, nameContains: meta.accessibleName.slice(0, 20) }
+          : { role: meta.role };
+
+      return {
+        frame: target.framePath.length > 0 ? [...target.framePath] : undefined,
+        primary,
+        fallbacks,
+        verify,
+      };
+    } finally {
+      await handle.dispose();
+    }
+  }
+
   private async performOnRef(
     ref: number,
     fn: (locator: PwLocator) => Promise<void>,

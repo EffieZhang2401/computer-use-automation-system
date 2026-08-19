@@ -1,0 +1,31 @@
+{
+  "cacheKey": "dd14b3e88b106f12a3a35e01ebdfbd6ff171336383e475b2adef6f1ab551d511",
+  "model": "gemini-3.5-flash-lite",
+  "promptVersion": "discovery-v1",
+  "request": {
+    "goal": "look up member 12345 and read their current savings balance",
+    "observation": {
+      "url": "http://localhost:3100/members/search",
+      "text": "url: http://localhost:3100/members/search\n\n[ref=26] textbox \"Member ID\"\n[ref=31] button \"Search\"",
+      "hash": "48b828fa786c630eafedbb6fc5f5cf24821b83600a411eff928bc866ae2f6f9c"
+    },
+    "history": [],
+    "runId": "727ca5fc-2cb9-45ba-b277-4c8fe3b8d4a1",
+    "timestamp": "2026-08-19T23:06:01.462Z",
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "discovery-v1"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "fill",
+      "ref": 26,
+      "text": "12345"
+    },
+    "usage": {
+      "inputTokens": 746,
+      "outputTokens": 23
+    },
+    "rawText": ""
+  },
+  "recordedAt": "2026-08-19T23:06:02.353Z"
+}

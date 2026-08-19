@@ -1,0 +1,30 @@
+{
+  "cacheKey": "e11c33d2bb38c2aab482a79b3f546867943e16d0723d4b92fc9fc9e2d5068e40",
+  "model": "gemini-3.5-flash-lite",
+  "promptVersion": "compile-v1",
+  "request": {
+    "goal": "annotate recording",
+    "observation": {
+      "url": "compile",
+      "text": "{\n  \"goal\": \"look up member 12345 and read their current savings balance\",\n  \"steps\": [\n    {\n      \"id\": \"s01\",\n      \"action\": \"fill\",\n      \"value\": {\n        \"kind\": \"literal\",\n        \"value\": \"12345\"\n      },\n      \"target\": {\n        \"by\": \"role\",\n        \"role\": \"textbox\",\n        \"name\": \"Member ID\",\n        \"nameMatch\": \"exact\"\n      }\n    },\n    {\n      \"id\": \"s02\",\n      \"action\": \"click\"\n    },\n    {\n      \"id\": \"s03\",\n      \"action\": \"extract\",\n      \"extractAs\": \"savingsBalance\",\n      \"target\": {\n        \"by\": \"domPath\",\n        \"path\": \"body[1]/table[1]/tbody[1]/tr[2]/td[1]/table[1]/tbody[1]/tr[2]/td[2]\"\n      }\n    }\n  ]\n}",
+      "hash": "compile-annotation"
+    },
+    "history": [],
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "compile-v1"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "done",
+      "summary": "annotation",
+      "checkpointDescription": "",
+      "outputs": {}
+    },
+    "usage": {
+      "inputTokens": 336,
+      "outputTokens": 330
+    },
+    "rawText": "{\"id\":\"lookup_member_savings_balance\",\"name\":\"Lookup Member Savings Balance\",\"description\":\"Looks up a member by their ID and reads their current savings balance.\",\"inputs\":[{\"name\":\"memberId\",\"type\":\"string\",\"sensitivity\":\"pii\",\"description\":\"The Member ID to look up.\"}],\"outputs\":[{\"name\":\"savingsBalance\",\"type\":\"string\",\"description\":\"The current savings balance of the member.\"}],\"stepIntents\":{\"s01\":\"Enter the member ID into the search input field.\",\"s02\":\"Click the search or submit button to initiate the member lookup.\",\"s03\":\"Extract the savings balance value from the results page.\"},\"successCheckpoint\":{\"type\":\"elementExists\",\"target\":{\"by\":\"domPath\",\"path\":\"body[1]/table[1]/tbody[1]/tr[2]/td[1]/table[1]/tbody[1]/tr[2]/td[2]\"}},\"outcomes\":[{\"condition\":\"savingsBalance is successfully extracted\",\"result\":\"success\"}]}"
+  },
+  "recordedAt": "2026-08-19T23:06:10.311Z"
+}

@@ -8,12 +8,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "demo-app": "tsx demo-app/server.ts",
-    "probe": "tsx src/cli/probe.ts"
+    "probe": "tsx src/cli/probe.ts",
+    "discover": "tsx src/cli/discover.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@google/genai": "^2.17.1",
     "express": "^5.2.1",
     "playwright": "^1.55.0",
     "zod": "^4.4.3"

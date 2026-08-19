@@ -1,0 +1,28 @@
+{
+  "cacheKey": "bb6b0f11a5c54e469a3d135c8a4919acb8da2ccf48d66b4d961c56df191701d0",
+  "model": "gemini-2.5-flash-lite",
+  "promptVersion": "discovery-v1",
+  "request": {
+    "goal": "look up member 12345",
+    "observation": {
+      "url": "http://localhost:3100/members/search",
+      "text": "url: http://localhost:3100/members/search\n\n[ref=12] textbox \"Member ID\"",
+      "hash": "abc123deadbeef"
+    },
+    "history": [],
+    "model": "gemini-2.5-flash-lite",
+    "promptVersion": "discovery-v1",
+    "runId": "ephemeral-run"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "click",
+      "ref": 12
+    },
+    "usage": {
+      "inputTokens": 100,
+      "outputTokens": 20
+    }
+  },
+  "recordedAt": "2026-08-19T20:31:34.466Z"
+}

@@ -1,0 +1,1 @@
+{"type":"run_started","runId":"8a867e95-05ea-425e-b227-c5e62b19be36","goal":"look up member 12345 and read their current savings balance","targetUrl":"http://localhost:3100/members/search","timestamp":"2026-08-19T23:01:31.263Z"}

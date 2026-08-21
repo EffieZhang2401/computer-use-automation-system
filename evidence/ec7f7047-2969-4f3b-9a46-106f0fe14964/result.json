@@ -1,0 +1,27 @@
+{
+  "status": "business_outcome",
+  "runId": "ec7f7047-2969-4f3b-9a46-106f0fe14964",
+  "artifactId": "member.read_savings_balance",
+  "artifactVersion": "1.0.0",
+  "durationMs": 650,
+  "evidenceDir": "C:\\Users\\effie\\computer-use-automation\\evidence\\ec7f7047-2969-4f3b-9a46-106f0fe14964",
+  "outcome": {
+    "code": "MEMBER_NOT_FOUND",
+    "message": "No member exists for the given identifier"
+  },
+  "steps": [
+    {
+      "stepId": "s01",
+      "durationMs": 59,
+      "resolvedTier": 0,
+      "retries": 0
+    },
+    {
+      "stepId": "s02",
+      "durationMs": 57,
+      "resolvedTier": 0,
+      "retries": 0
+    }
+  ],
+  "driftSignals": []
+}

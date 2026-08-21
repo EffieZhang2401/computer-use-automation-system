@@ -9,7 +9,9 @@
     "test": "vitest run",
     "demo-app": "tsx demo-app/server.ts",
     "probe": "tsx src/cli/probe.ts",
-    "discover": "tsx src/cli/discover.ts"
+    "discover": "tsx src/cli/discover.ts",
+    "approve": "tsx src/cli/approve.ts",
+    "replay": "tsx src/cli/replay.ts"
   },
   "engines": {
     "node": ">=20"

@@ -1,0 +1,32 @@
+{
+  "status": "success",
+  "runId": "6c06185c-dafe-4b89-b5af-74500de897ad",
+  "artifactId": "member.read_savings_balance",
+  "artifactVersion": "1.0.0",
+  "durationMs": 1830,
+  "evidenceDir": "C:\\Users\\effie\\computer-use-automation\\evidence\\6c06185c-dafe-4b89-b5af-74500de897ad",
+  "outputs": {
+    "savingsBalance": "$4,210.55"
+  },
+  "steps": [
+    {
+      "stepId": "s01",
+      "durationMs": 118,
+      "resolvedTier": 0,
+      "retries": 0
+    },
+    {
+      "stepId": "s02",
+      "durationMs": 103,
+      "resolvedTier": 0,
+      "retries": 0
+    },
+    {
+      "stepId": "s03",
+      "durationMs": 57,
+      "resolvedTier": 0,
+      "retries": 0
+    }
+  ],
+  "driftSignals": []
+}

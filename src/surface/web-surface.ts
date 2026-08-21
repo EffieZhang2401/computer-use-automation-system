@@ -6,7 +6,8 @@ import {
   type Locator as PwLocator,
   type Page,
 } from "playwright";
-import type { Locator as SchemaLocator, Strategy } from "../core/schema.js";
+import type { Assertion, Locator as SchemaLocator, Strategy } from "../core/schema.js";
+import { evaluateAssertion } from "./assertions.js";
 import {
   buildObservation,
   collectObservationEntries,
@@ -15,6 +16,7 @@ import {
 } from "./a11y.js";
 import {
   resolveLocator,
+  strategiesForLocator,
   type LocatorResolveBackend,
   type VerifyFields,
 } from "./locator-resolver.js";
@@ -31,6 +33,8 @@ type RefTarget = {
   backendDOMNodeId: number;
   role: string;
   name: string;
+  /** Visible text content, used for verify and extract. */
+  text: string;
 };
 
 type WebSurfaceOptions = {
@@ -83,6 +87,7 @@ export class WebSurface implements Surface {
           backendDOMNodeId: entry.node.backendDOMNodeId,
           role: node.role,
           name: node.name,
+          text: node.name,
         });
       }
     }
@@ -133,6 +138,105 @@ export class WebSurface implements Surface {
   async resolveSchemaLocator(locator: SchemaLocator) {
     const backend = createPlaywrightResolveBackend(this.page);
     return resolveLocator(locator, backend);
+  }
+
+  getCurrentUrl(): string {
+    return this.page.url();
+  }
+
+  async getFullPageText(): Promise<string> {
+    return this.page.evaluate(() => document.body.innerText);
+  }
+
+  async clickSchemaLocator(locator: SchemaLocator): Promise<{ tier: number } | { error: string }> {
+    const resolved = await this.resolveSchemaLocatorPlaywright(locator);
+    if ("error" in resolved) return { error: resolved.error };
+    try {
+      await resolved.pw.click();
+      return { tier: resolved.tier };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async fillSchemaLocator(
+    locator: SchemaLocator,
+    text: string,
+  ): Promise<{ tier: number } | { error: string }> {
+    const resolved = await this.resolveSchemaLocatorPlaywright(locator);
+    if ("error" in resolved) return { error: resolved.error };
+    try {
+      await resolved.pw.fill(text);
+      return { tier: resolved.tier };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async extractSchemaLocatorText(
+    locator: SchemaLocator,
+  ): Promise<{ tier: number; text: string } | { error: string }> {
+    const resolved = await this.resolveSchemaLocatorPlaywright(locator);
+    if ("error" in resolved) return { error: resolved.error };
+    try {
+      const text = (await resolved.pw.innerText()).trim();
+      return { tier: resolved.tier, text };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async isSchemaLocatorVisible(locator: SchemaLocator): Promise<boolean> {
+    const resolved = await this.resolveSchemaLocatorPlaywright(locator);
+    if ("error" in resolved) return false;
+    try {
+      return await resolved.pw.isVisible();
+    } catch {
+      return false;
+    }
+  }
+
+  private async resolveSchemaLocatorPlaywright(
+    locator: SchemaLocator,
+  ): Promise<{ tier: number; pw: PwLocator } | { error: string }> {
+    const resolved = await this.resolveSchemaLocator(locator);
+    if (resolved.status === "unresolved") {
+      return { error: `locator unresolved after ${resolved.attemptedTiers} tiers` };
+    }
+    const strategies = strategiesForLocator(locator);
+    const strategy = strategies[resolved.tier];
+    if (strategy === undefined) {
+      return { error: `missing strategy at tier ${resolved.tier}` };
+    }
+    const frame = await resolveFramePath(this.page, locator.frame ?? []);
+    return { tier: resolved.tier, pw: strategyToPlaywrightLocator(frame, strategy) };
+  }
+
+  async checkAssertion(assertion: Assertion): Promise<boolean> {
+    const pageText = await this.getFullPageText();
+    return evaluateAssertion(assertion, {
+      url: this.getCurrentUrl(),
+      pageText,
+      isLocatorVisible: (locator) => this.isSchemaLocatorVisible(locator),
+      readLocatorText: async (locator) => {
+        const extracted = await this.extractSchemaLocatorText(locator);
+        return "text" in extracted ? extracted.text : null;
+      },
+    });
+  }
+
+  /** Poll until the assertion holds or the timeout elapses — no fixed sleep. */
+  async waitForAssertion(assertion: Assertion, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await this.checkAssertion(assertion)) return true;
+      await this.page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    }
+    return false;
+  }
+
+  async reload(): Promise<void> {
+    await this.page.reload({ waitUntil: "domcontentloaded" });
   }
 
   /** Read visible text from an observed ref. */
@@ -265,6 +369,13 @@ export class WebSurface implements Surface {
     if (target === undefined) {
       throw new Error(`Unknown ref ${ref} — call observe() first`);
     }
+    await this.performOnTarget(target, fn);
+  }
+
+  private async performOnTarget(
+    target: RefTarget,
+    fn: (locator: PwLocator) => Promise<void>,
+  ): Promise<void> {
     const frame = await resolveFramePath(this.page, target.framePath);
     const locator = locatorForTarget(frame, target);
     await fn(locator);
@@ -350,10 +461,68 @@ function createPlaywrightResolveBackend(page: Page): LocatorResolveBackend<RefTa
           const pw = targetFrame.locator(strategy.selector);
           return metaFromLocator(targetFrame, pw, frame ?? []);
         }
-        case "domPath":
-        case "textAnchor":
-        case "coordinates":
-          return null;
+        case "domPath": {
+          const pw = targetFrame.locator(domPathToSelector(strategy.path));
+          return metaFromLocator(targetFrame, pw, frame ?? []);
+        }
+        case "coordinates": {
+          const handle = await targetFrame.evaluateHandle(
+            ({ x, y }) => document.elementFromPoint(x, y),
+            { x: strategy.x, y: strategy.y },
+          );
+          const element = handle.asElement();
+          if (element === null) {
+            await handle.dispose();
+            return null;
+          }
+          const meta = await metaFromHandle(targetFrame, element, frame ?? []);
+          await handle.dispose();
+          return meta;
+        }
+        case "textAnchor": {
+          const handle = await targetFrame.evaluateHandle(
+            ({ anchorText, direction, nth }) => {
+              const nodes = Array.from(document.querySelectorAll("td, th, label, span, div, p"));
+              for (const node of nodes) {
+                const text = (node.textContent ?? "").trim();
+                if (!text.includes(anchorText)) continue;
+                const row = node.closest("tr");
+                if (row === null) continue;
+                const cells = Array.from(row.querySelectorAll(":scope > td, :scope > th"));
+                const idx = cells.indexOf(node as HTMLTableCellElement);
+                if (idx === -1) continue;
+                if (direction === "right") {
+                  const target = cells[idx + 1 + nth];
+                  if (target !== undefined) return target;
+                  continue;
+                }
+                const body = row.parentElement;
+                if (body === null) continue;
+                const rows = Array.from(body.querySelectorAll("tr"));
+                const rowIdx = rows.indexOf(row);
+                const below = rows[rowIdx + 1 + nth];
+                if (below === undefined) continue;
+                const belowCells = Array.from(below.querySelectorAll(":scope > td, :scope > th"));
+                const belowTarget = belowCells[idx];
+                if (belowTarget !== undefined) return belowTarget;
+              }
+              return null;
+            },
+            {
+              anchorText: strategy.anchorText,
+              direction: strategy.direction,
+              nth: strategy.nth,
+            },
+          );
+          const element = handle.asElement();
+          if (element === null) {
+            await handle.dispose();
+            return null;
+          }
+          const meta = await metaFromHandle(targetFrame, element, frame ?? []);
+          await handle.dispose();
+          return meta;
+        }
         default: {
           const _exhaustive: never = strategy;
           return _exhaustive;
@@ -365,7 +534,7 @@ function createPlaywrightResolveBackend(page: Page): LocatorResolveBackend<RefTa
       return {
         role: candidate.role,
         name: candidate.name,
-        text: candidate.name,
+        text: candidate.text,
       };
     },
   };
@@ -392,8 +561,9 @@ async function metaFromLocator(
     const id = html.id;
     const labelEl = id !== "" ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
     const labelText = labelEl?.textContent?.trim() ?? "";
-    const name = aria !== "" ? aria : labelText;
-    return { role: role.toLowerCase(), name };
+    const text = (html.innerText ?? html.textContent ?? "").trim();
+    const name = aria !== "" ? aria : labelText !== "" ? labelText : text;
+    return { role: role.toLowerCase(), name, text };
   });
 
   const backendDOMNodeId = await readBackendNodeId(frame, handle);
@@ -404,6 +574,7 @@ async function metaFromLocator(
       backendDOMNodeId: -1,
       role: meta.role,
       name: meta.name,
+      text: meta.text,
     };
   }
 
@@ -412,12 +583,104 @@ async function metaFromLocator(
     backendDOMNodeId,
     role: meta.role,
     name: meta.name,
+    text: meta.text,
   };
+}
+
+async function metaFromHandle(
+  frame: Frame,
+  handle: import("playwright").ElementHandle<Element>,
+  framePath: FramePath,
+): Promise<RefTarget | null> {
+  const meta = await handle.evaluate((el) => {
+    const html = el as HTMLElement;
+    const role =
+      html.getAttribute("role") ??
+      (html.tagName === "INPUT"
+        ? "textbox"
+        : html.tagName === "BUTTON"
+          ? "button"
+          : html.tagName.toLowerCase());
+    const aria = html.getAttribute("aria-label") ?? "";
+    const id = html.id;
+    const labelEl = id !== "" ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+    const labelText = labelEl?.textContent?.trim() ?? "";
+    const text = (html.innerText ?? html.textContent ?? "").trim();
+    const name = aria !== "" ? aria : labelText !== "" ? labelText : text;
+    return { role: role.toLowerCase(), name, text };
+  });
+
+  const backendDOMNodeId = await readBackendNodeId(frame, handle);
+  if (backendDOMNodeId === undefined) {
+    return {
+      framePath: [...framePath],
+      backendDOMNodeId: -1,
+      role: meta.role,
+      name: meta.name,
+      text: meta.text,
+    };
+  }
+
+  return {
+    framePath: [...framePath],
+    backendDOMNodeId,
+    role: meta.role,
+    name: meta.name,
+    text: meta.text,
+  };
+}
+
+function domPathToSelector(path: string): string {
+  const segments = path.split("/").filter((segment) => segment.length > 0);
+  if (segments.length === 0) return "body";
+  const xpathParts = segments.map((segment) => {
+    const match = /^([a-z0-9]+)\[(\d+)\]$/i.exec(segment);
+    if (match === null) return segment;
+    const tag = match[1]!.toLowerCase();
+    const index = match[2];
+    return `${tag}[${index}]`;
+  });
+  return `xpath=/${xpathParts.join("/")}`;
+}
+
+function strategyToPlaywrightLocator(frame: Frame, strategy: Strategy): PwLocator {
+  switch (strategy.by) {
+    case "role":
+      return frame.getByRole(strategy.role as Parameters<Frame["getByRole"]>[0], {
+        name: strategy.name,
+        exact: strategy.nameMatch === "exact",
+      });
+    case "label":
+      return frame.getByLabel(strategy.text, { exact: true });
+    case "css":
+      return frame.locator(strategy.selector);
+    case "domPath":
+      return frame.locator(domPathToSelector(strategy.path));
+    case "coordinates":
+      return frame.locator(
+        `xpath=//*[@data-playwright-target="coordinates-${strategy.x}-${strategy.y}"]`,
+      );
+    case "textAnchor": {
+      const anchor = strategy.anchorText.replace(/"/g, '\\"');
+      if (strategy.direction === "right") {
+        return frame.locator(
+          `xpath=//tr[td[contains(normalize-space(.), "${anchor}")]]/td[${strategy.nth + 2}]`,
+        );
+      }
+      return frame.locator(
+        `xpath=(//tr[td[contains(normalize-space(.), "${anchor}")]]/following-sibling::tr)[${strategy.nth + 1}]/td[last()]`,
+      );
+    }
+    default: {
+      const _exhaustive: never = strategy;
+      return _exhaustive;
+    }
+  }
 }
 
 async function readBackendNodeId(
   frame: Frame,
-  handle: NonNullable<Awaited<ReturnType<PwLocator["elementHandle"]>>>,
+  handle: import("playwright").ElementHandle<Element>,
 ): Promise<number | undefined> {
   const session = await owningPage(frame).context().newCDPSession(frame);
   try {

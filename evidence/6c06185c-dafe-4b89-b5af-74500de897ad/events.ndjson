@@ -1,0 +1,2 @@
+{"type":"replay_started","runId":"6c06185c-dafe-4b89-b5af-74500de897ad","artifactId":"member.read_savings_balance","artifactVersion":"1.0.0","params":"{\"memberId\":\"[REDACTED:pii]\",\"baseUrl\":\"http://localhost:3100\"}","timestamp":"2026-08-21T18:37:37.107Z"}
+{"type":"replay_finished","status":"success","timestamp":"2026-08-21T18:37:37.849Z"}

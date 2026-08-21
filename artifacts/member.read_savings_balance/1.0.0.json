@@ -1,0 +1,253 @@
+{
+  "schemaVersion": "1.0",
+  "id": "member.read_savings_balance",
+  "version": "1.0.0",
+  "status": "approved",
+  "name": "Read member savings balance",
+  "description": "Look up a member by ID and extract the displayed savings account balance.",
+  "target": {
+    "appId": "corebank-lite",
+    "appVersionRange": ">=2.1 <3.0",
+    "entryPoint": "{{baseUrl}}/members/search"
+  },
+  "surface": {
+    "kind": "web",
+    "capabilities": [
+      "iframe"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "memberId",
+      "type": "string",
+      "required": true,
+      "description": "Member identifier",
+      "sensitivity": "pii"
+    },
+    {
+      "name": "baseUrl",
+      "type": "string",
+      "required": true,
+      "description": "Tenant base URL",
+      "sensitivity": "public",
+      "example": "http://localhost:3100"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "savingsBalance",
+      "type": "string",
+      "description": "Displayed savings balance",
+      "sensitivity": "pii",
+      "source": {
+        "stepId": "s03",
+        "extract": "innerText"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "id": "s01",
+      "intent": "Enter the member ID into the search box",
+      "action": "fill",
+      "target": {
+        "primary": {
+          "by": "role",
+          "role": "textbox",
+          "name": "Member ID",
+          "nameMatch": "exact"
+        },
+        "fallbacks": [
+          {
+            "by": "css",
+            "selector": "#ctl00\\$MainContent\\$txtMemberId"
+          },
+          {
+            "by": "css",
+            "selector": "input[name=\"memberId\"]"
+          },
+          {
+            "by": "domPath",
+            "path": "body[1]/table[1]/tbody[1]/tr[2]/td[1]/fieldset[1]/form[1]/table[1]/tbody[1]/tr[1]/td[2]/input[1]"
+          },
+          {
+            "by": "coordinates",
+            "x": 173,
+            "y": 83,
+            "relativeTo": "viewport"
+          }
+        ],
+        "verify": {
+          "role": "textbox",
+          "nameContains": "Member ID"
+        }
+      },
+      "value": {
+        "kind": "param",
+        "name": "memberId"
+      },
+      "postcondition": {
+        "kind": "visible",
+        "locator": {
+          "primary": {
+            "by": "role",
+            "role": "textbox",
+            "name": "Member ID",
+            "nameMatch": "exact"
+          },
+          "fallbacks": [
+            {
+              "by": "css",
+              "selector": "#ctl00\\$MainContent\\$txtMemberId"
+            },
+            {
+              "by": "css",
+              "selector": "input[name=\"memberId\"]"
+            },
+            {
+              "by": "domPath",
+              "path": "body[1]/table[1]/tbody[1]/tr[2]/td[1]/fieldset[1]/form[1]/table[1]/tbody[1]/tr[1]/td[2]/input[1]"
+            },
+            {
+              "by": "coordinates",
+              "x": 173,
+              "y": 83,
+              "relativeTo": "viewport"
+            }
+          ],
+          "verify": {
+            "role": "textbox",
+            "nameContains": "Member ID"
+          }
+        }
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s02",
+      "intent": "Submit the member search",
+      "action": "click",
+      "target": {
+        "primary": {
+          "by": "role",
+          "role": "button",
+          "name": "Search",
+          "nameMatch": "exact"
+        },
+        "fallbacks": [
+          {
+            "by": "css",
+            "selector": "#ctl00\\$MainContent\\$btnSearch"
+          },
+          {
+            "by": "css",
+            "selector": "button[type=\"submit\"]"
+          }
+        ],
+        "verify": {
+          "role": "button",
+          "nameContains": "Search"
+        }
+      },
+      "postcondition": {
+        "kind": "any",
+        "of": [
+          {
+            "kind": "textPresent",
+            "text": "Savings"
+          },
+          {
+            "kind": "textPresent",
+            "text": "Member not found"
+          }
+        ]
+      },
+      "wait": {
+        "until": "assertion",
+        "timeoutMs": 10000,
+        "retries": 0
+      },
+      "risk": "safe"
+    },
+    {
+      "id": "s03",
+      "intent": "Extract the savings balance from the accounts table",
+      "action": "extract",
+      "target": {
+        "primary": {
+          "by": "textAnchor",
+          "anchorText": "Savings",
+          "direction": "right",
+          "nth": 0
+        },
+        "fallbacks": [],
+        "verify": {
+          "textMatches": "\\$[0-9,]+\\.\\d{2}"
+        }
+      },
+      "extractAs": "savingsBalance",
+      "postcondition": {
+        "kind": "textPresent",
+        "pattern": "\\$[0-9,]+\\.\\d{2}"
+      },
+      "risk": "safe"
+    }
+  ],
+  "successCheckpoint": {
+    "kind": "all",
+    "of": [
+      {
+        "kind": "textPresent",
+        "text": "Savings"
+      },
+      {
+        "kind": "urlMatches",
+        "pattern": ".*/members/.*"
+      }
+    ]
+  },
+  "outcomes": [
+    {
+      "code": "MEMBER_NOT_FOUND",
+      "detect": {
+        "kind": "textPresent",
+        "text": "Member not found"
+      },
+      "terminal": true,
+      "message": "No member exists for the given identifier",
+      "mapsTo": "business_outcome"
+    }
+  ],
+  "recoveries": [],
+  "policy": {
+    "allowedOrigins": [
+      "http://localhost:3100",
+      "http://127.0.0.1:3100"
+    ],
+    "allowedActions": [
+      "navigate",
+      "click",
+      "fill",
+      "select",
+      "press",
+      "extract",
+      "waitFor",
+      "assert"
+    ],
+    "maxSteps": 50,
+    "highestRisk": "reversible"
+  },
+  "provenance": {
+    "discoveryRunId": "665a30c0-4e27-447a-8c88-00dcdf4fa877",
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "discovery-v1",
+    "recordedAt": "2026-08-19T23:09:59.896Z",
+    "recordedBy": "discovery-agent"
+  },
+  "health": {
+    "replays": 0,
+    "successes": 0,
+    "lastVerifiedAt": "2026-08-20T05:08:15.993Z",
+    "fallbackTierHistogram": {}
+  }
+}

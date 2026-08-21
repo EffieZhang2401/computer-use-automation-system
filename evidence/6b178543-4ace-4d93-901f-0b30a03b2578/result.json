@@ -1,0 +1,36 @@
+{
+  "status": "failed",
+  "runId": "6b178543-4ace-4d93-901f-0b30a03b2578",
+  "artifactId": "member.read_savings_balance",
+  "artifactVersion": "1.0.0",
+  "durationMs": 10784,
+  "evidenceDir": "C:\\Users\\effie\\computer-use-automation\\evidence\\6b178543-4ace-4d93-901f-0b30a03b2578",
+  "failure": {
+    "stepId": "s02",
+    "stepIntent": "Submit the member search",
+    "kind": "app_error",
+    "expected": "any of: text present: \"Savings\"; text present: \"Member not found\"",
+    "observed": "url=http://localhost:3100/members/search text=\"CoreBank Lite v2.1.0 Application error An unexpected error occurred in CoreBank Lite. Error code: ERR-CORE-0001\"",
+    "resolvedTier": 0,
+    "evidence": {
+      "screenshot": "evidence\\6b178543-4ace-4d93-901f-0b30a03b2578\\failure-screenshot.png",
+      "a11ySnapshot": "evidence\\6b178543-4ace-4d93-901f-0b30a03b2578\\failure-a11y.txt",
+      "url": "http://localhost:3100/members/search"
+    }
+  },
+  "steps": [
+    {
+      "stepId": "s01",
+      "durationMs": 59,
+      "resolvedTier": 0,
+      "retries": 0
+    },
+    {
+      "stepId": "s02",
+      "durationMs": 0,
+      "resolvedTier": 0,
+      "retries": 0
+    }
+  ],
+  "driftSignals": []
+}

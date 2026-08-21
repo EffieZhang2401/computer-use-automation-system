@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operator console</title>
+  <style>
+    :root {
+      --bg: #f3f0e8;
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --accent: #0b5fff;
+      --danger: #b42318;
+      --card: #fffdf8;
+      --border: #d6d0c4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 650;
+    }
+    header p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    .banner {
+      background: #fff6d6;
+      border: 1px solid #e6d59a;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.95rem;
+    }
+    .empty {
+      color: var(--muted);
+      padding: 2rem 0;
+      text-align: center;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 1rem 1.15rem;
+      margin-bottom: 1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.05rem;
+    }
+    .meta {
+      display: grid;
+      gap: 0.35rem;
+      font-size: 0.9rem;
+      margin: 0.75rem 0;
+    }
+    .meta span { color: var(--muted); }
+    .state {
+      display: inline-block;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.85rem;
+      padding: 0.15rem 0.4rem;
+      background: #eee;
+      border-radius: 3px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    button {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--ink);
+      padding: 0.45rem 0.8rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.danger {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .note {
+      width: 100%;
+      margin-top: 0.65rem;
+      padding: 0.45rem 0.55rem;
+      font: inherit;
+      border: 1px solid var(--border);
+    }
+    .status-line {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .err { color: var(--danger); font-size: 0.9rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Operator console</h1>
+    <p>Human-in-the-loop control transfer for discovery and replay runs.</p>
+  </header>
+  <main>
+    <div class="banner">
+      Degraded live view: there is no CDP screencast. When an intervention
+      appears, complete the step manually in the <strong>open browser window</strong>,
+      then click <strong>Hand back &amp; resume</strong>.
+    </div>
+    <div class="status-line" id="conn">Connecting…</div>
+    <div id="list" class="empty">No active sessions. Start a discovery or replay run.</div>
+  </main>
+  <script>
+    const sessions = new Map();
+    const listEl = document.getElementById("list");
+    const connEl = document.getElementById("conn");
+
+    function upsert(snapshot) {
+      sessions.set(snapshot.sessionId, snapshot);
+      render();
+    }
+
+    function remove(sessionId) {
+      sessions.delete(sessionId);
+      render();
+    }
+
+    function render() {
+      const items = [...sessions.values()].sort((a, b) =>
+        (a.runId || "").localeCompare(b.runId || "")
+      );
+      if (items.length === 0) {
+        listEl.className = "empty";
+        listEl.textContent = "No active sessions. Start a discovery or replay run.";
+        return;
+      }
+      listEl.className = "";
+      listEl.innerHTML = items.map(cardHtml).join("");
+      for (const item of items) {
+        bindActions(item.sessionId);
+      }
+    }
+
+    function cardHtml(s) {
+      const iv = s.intervention;
+      const step = iv ? iv.stepIndex : s.stepIndex;
+      const guidance =
+        (iv && iv.whatHumanShouldDo) ||
+        (step !== undefined
+          ? `Please complete step ${step} manually in the open browser window, then click Hand back & resume.`
+          : "Waiting for intervention…");
+      const canTake = s.state === "PAUSED_AWAITING_HUMAN";
+      const canHand = s.state === "HUMAN";
+      const canAbort = s.state === "PAUSED_AWAITING_HUMAN" || s.state === "HUMAN";
+      return `
+        <section class="card" data-session="${s.sessionId}">
+          <h2>${escapeHtml(s.goal || s.capabilityId || s.runId)}</h2>
+          <div class="meta">
+            <div><span>Run</span> ${escapeHtml(s.runId)}</div>
+            <div><span>State</span> <span class="state">${escapeHtml(s.state)}</span></div>
+            <div><span>controlOwner</span> <span class="state">${escapeHtml(s.controlOwner)}</span></div>
+            ${iv ? `<div><span>Reason</span> ${escapeHtml(iv.reason)}</div>` : ""}
+            ${iv ? `<div><span>Message</span> ${escapeHtml(iv.message)}</div>` : ""}
+            ${step !== undefined ? `<div><span>Step</span> ${step}</div>` : ""}
+            ${iv && iv.url ? `<div><span>URL</span> ${escapeHtml(iv.url)}</div>` : ""}
+          </div>
+          ${iv ? `<p>${escapeHtml(guidance)}</p>` : "<p>Session active — no pending intervention.</p>"}
+          <label>
+            Hand-back note (optional)
+            <input class="note" id="note-${s.sessionId}" placeholder="What did you do?" />
+          </label>
+          <div class="actions">
+            <button class="primary" data-act="take" ${canTake ? "" : "disabled"}>Take control</button>
+            <button data-act="hand" ${canHand ? "" : "disabled"}>Hand back &amp; resume</button>
+            <button class="danger" data-act="abort" ${canAbort ? "" : "disabled"}>Abort</button>
+          </div>
+          <div class="err" id="err-${s.sessionId}"></div>
+        </section>
+      `;
+    }
+
+    function bindActions(sessionId) {
+      const card = listEl.querySelector(`[data-session="${sessionId}"]`);
+      if (!card) return;
+      card.querySelector('[data-act="take"]')?.addEventListener("click", () =>
+        post(sessionId, "take-control")
+      );
+      card.querySelector('[data-act="hand"]')?.addEventListener("click", () => {
+        const note = document.getElementById(`note-${sessionId}`)?.value;
+        post(sessionId, "hand-back", { note });
+      });
+      card.querySelector('[data-act="abort"]')?.addEventListener("click", () =>
+        post(sessionId, "abort", { reason: "Aborted from operator console" })
+      );
+    }
+
+    async function post(sessionId, action, body) {
+      const errEl = document.getElementById(`err-${sessionId}`);
+      if (errEl) errEl.textContent = "";
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (errEl) errEl.textContent = data.error || res.statusText;
+          return;
+        }
+        if (data.session) upsert(data.session);
+      } catch (e) {
+        if (errEl) errEl.textContent = String(e);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function bootstrap() {
+      try {
+        const res = await fetch("/api/sessions");
+        const data = await res.json();
+        for (const s of data.sessions || []) upsert(s);
+      } catch (_) { /* SSE will populate */ }
+    }
+
+    function connect() {
+      const es = new EventSource("/api/events");
+      es.addEventListener("open", () => {
+        connEl.textContent = "SSE connected";
+      });
+      es.addEventListener("hello", (ev) => {
+        const data = JSON.parse(ev.data);
+        for (const s of data.sessions || []) upsert(s);
+      });
+      es.addEventListener("intervention", (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.session) upsert(data.session);
+      });
+      es.addEventListener("state", (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.session) upsert(data.session);
+      });
+      es.addEventListener("closed", (ev) => {
+        const data = JSON.parse(ev.data);
+        remove(data.sessionId);
+      });
+      es.onerror = () => {
+        connEl.textContent = "SSE disconnected — retrying…";
+      };
+    }
+
+    bootstrap().then(connect);
+  </script>
+</body>
+</html>

@@ -8,7 +8,8 @@ export type StuckReason =
   | "model_escalate"
   | "max_steps"
   | "timeout"
-  | "token_budget";
+  | "token_budget"
+  | "irreversible";
 
 export type InterventionRequest = {
   runId: string;

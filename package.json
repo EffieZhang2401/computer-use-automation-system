@@ -11,7 +11,8 @@
     "probe": "tsx src/cli/probe.ts",
     "discover": "tsx src/cli/discover.ts",
     "approve": "tsx src/cli/approve.ts",
-    "replay": "tsx src/cli/replay.ts"
+    "replay": "tsx src/cli/replay.ts",
+    "operator": "tsx src/cli/operator.ts"
   },
   "engines": {
     "node": ">=20"

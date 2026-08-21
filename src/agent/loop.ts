@@ -8,8 +8,13 @@ import type { CapabilityArtifact } from "../core/schema.js";
 import { createLLMClient, TokenBudgetExceededError, type LLMClient } from "../llm/client.js";
 import type { LLMHistoryEntry } from "../llm/types.js";
 import { PolicyGate } from "../policy/gate.js";
-import type { ActionCall, Observation, Surface } from "../surface/surface.js";
+import type { Observation, Surface } from "../surface/surface.js";
 import { WebSurface } from "../surface/web-surface.js";
+import {
+  SessionAbortedError,
+  SessionManager,
+  type SessionManager as SessionManagerType,
+} from "../session/manager.js";
 import { compileMechanical, compileWithAnnotation } from "./compiler.js";
 import { captureLocatorForCall, Recorder } from "./recorder.js";
 import {
@@ -20,23 +25,42 @@ import {
   recordObservationHash,
   recordPolicyRejection,
 } from "./stuck.js";
-import {
-  isTerminalTool,
-  type AgentToolCall,
-} from "./tools.js";
-import type { DiscoveryOptions, DiscoveryResult, InterventionRequest } from "./types.js";
+import { isTerminalTool, type AgentToolCall } from "./tools.js";
+import type { DiscoveryResult, InterventionRequest } from "./types.js";
 
-export type RunDiscoveryOptions = DiscoveryOptions & {
+export type RunDiscoveryOptions = {
+  goal: string;
+  targetUrl: string;
+  runId: string;
+  maxSteps?: number;
+  timeoutMs?: number;
+  baseUrl?: string;
+  artifactId?: string;
+  session?: SessionManagerType;
   llm?: LLMClient;
-  surface?: Surface & { captureLocator(ref: number): Promise<import("../core/schema.js").Locator | null>; extractText(ref: number): Promise<string> };
+  surface?: Surface & {
+    captureLocator(ref: number): Promise<import("../core/schema.js").Locator | null>;
+    extractText(ref: number): Promise<string>;
+  };
   headless?: boolean;
   authCookies?: Array<{ name: string; value: string; url: string }>;
   annotate?: boolean;
+  /** When true (default), pause on stuck/irreversible for human handoff. */
+  enableInterventionHandoff?: boolean;
 };
 
 const DEFAULT_POLICY = {
   allowedOrigins: ["http://127.0.0.1:3100", "http://localhost:3100"],
-  allowedActions: ["navigate", "click", "fill", "select", "press", "extract", "waitFor", "assert"] as const,
+  allowedActions: [
+    "navigate",
+    "click",
+    "fill",
+    "select",
+    "press",
+    "extract",
+    "waitFor",
+    "assert",
+  ] as const,
   maxSteps: 50,
   highestRisk: "irreversible" as const,
 };
@@ -45,6 +69,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
   result: DiscoveryResult;
   artifact: CapabilityArtifact;
   evidenceDir: string;
+  session?: SessionManagerType;
 }> {
   const runId = opts.runId;
   const maxSteps = opts.maxSteps ?? 25;
@@ -63,6 +88,16 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
   const ownsSurface = opts.surface === undefined;
   const evidenceDir = path.resolve("evidence", runId);
   await mkdir(evidenceDir, { recursive: true });
+
+  const session =
+    opts.session ??
+    SessionManager.create({
+      runId,
+      goal: opts.goal,
+      evidenceDir,
+    });
+  const ownsSession = opts.session === undefined;
+  const handoff = opts.enableInterventionHandoff ?? true;
 
   const recorder = new Recorder();
   const stuckState = createStuckState();
@@ -86,6 +121,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
       timestamp: new Date().toISOString(),
     });
 
+    await session.assertAutomationControl();
     await surface.act({ kind: "navigate", url: opts.targetUrl });
     let observation = await surface.observe();
 
@@ -99,8 +135,15 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
         observationHash: observation.hash,
       });
       if (stuck !== null) {
-        intervention = stuck;
-        break;
+        const outcome = await pauseForHuman(session, stuck, handoff);
+        if (outcome !== "resumed") {
+          intervention = stuck;
+          break;
+        }
+        resetStuckProgress(stuckState);
+        stepIndex += 1;
+        observation = await surface.observe();
+        continue;
       }
 
       let llmResponse;
@@ -123,6 +166,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
             "token_budget",
             err.message,
           );
+          await pauseForHuman(session, intervention, handoff);
           break;
         }
         throw err;
@@ -140,23 +184,32 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
       });
 
       if (isTerminalTool(toolCall)) {
-        terminalTool = toolCall;
         if (toolCall.tool === "done") {
+          terminalTool = toolCall;
           Object.assign(outputs, toolCall.outputs);
+          break;
         }
         if (toolCall.tool === "escalate") {
-          intervention = interventionForReason(
+          const esc = interventionForReason(
             { runId, stepIndex, url: observation.url, observationHash: observation.hash },
             "model_escalate",
             toolCall.reason,
             toolCall.whatHumanShouldDo,
           );
+          const outcome = await pauseForHuman(session, esc, handoff);
+          if (outcome !== "resumed") {
+            intervention = esc;
+            break;
+          }
+          resetStuckProgress(stuckState);
+          stepIndex += 1;
+          observation = await surface.observe();
+          continue;
         }
-        break;
       }
 
       const obsHashBefore = observation.hash;
-      const policyDecision = gate.check(toGatedCall(toolCall, observation), {
+      const policyDecision = gate.check(toGatedCall(toolCall), {
         currentUrl: observation.url,
         stepIndex,
         targetName: targetNameFromObservation(observation, toolCall),
@@ -165,7 +218,12 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
       if (!policyDecision.allowed) {
         recordPolicyRejection(stuckState, true);
         const result = `Policy rejected: ${policyDecision.reason ?? "not allowed"}`;
-        history.push({ step: stepIndex, toolCall, result, observationHashAfter: observation.hash });
+        history.push({
+          step: stepIndex,
+          toolCall,
+          result,
+          observationHashAfter: observation.hash,
+        });
         await logEvent(evidenceDir, {
           type: "policy_rejection",
           step: stepIndex,
@@ -180,8 +238,15 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
           observationHash: observation.hash,
         });
         if (policyStuck !== null) {
-          intervention = policyStuck;
-          break;
+          const outcome = await pauseForHuman(session, policyStuck, handoff);
+          if (outcome !== "resumed") {
+            intervention = policyStuck;
+            break;
+          }
+          resetStuckProgress(stuckState);
+          stepIndex += 1;
+          observation = await surface.observe();
+          continue;
         }
 
         stepIndex += 1;
@@ -190,6 +255,44 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
 
       recordPolicyRejection(stuckState, false);
 
+      // Irreversible: with handoff enabled, pause so the human completes the step
+      // on the same live session. Without handoff (headless/cassette), execute as before.
+      if (policyDecision.flagged && handoff) {
+        const risky = interventionForReason(
+          {
+            runId,
+            stepIndex,
+            url: observation.url,
+            observationHash: observation.hash,
+          },
+          "irreversible",
+          `Irreversible action flagged before execution: ${summarizeTool(toolCall)}`,
+        );
+        const outcome = await pauseForHuman(session, risky, handoff);
+        if (outcome !== "resumed") {
+          intervention = risky;
+          break;
+        }
+        await logEvent(evidenceDir, {
+          type: "action_completed_by_human",
+          actor: "human",
+          step: stepIndex,
+          toolCall,
+          timestamp: new Date().toISOString(),
+        });
+        observation = await surface.observe();
+        history.push({
+          step: stepIndex,
+          toolCall,
+          result: "completed by human during intervention",
+          observationHashAfter: observation.hash,
+        });
+        resetStuckProgress(stuckState);
+        stepIndex += 1;
+        continue;
+      }
+
+      await session.assertAutomationControl();
       const execResult = await executeToolCall(surface, toolCall, observation, outputs);
       const locator = await captureLocatorForCall(surface, toolCall);
       observation = await surface.observe();
@@ -212,6 +315,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
 
       await logEvent(evidenceDir, {
         type: "action_executed",
+        actor: "automation",
         step: stepIndex,
         toolCall,
         locator,
@@ -229,6 +333,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
         "max_steps",
         `Discovery reached maxSteps (${maxSteps})`,
       );
+      await pauseForHuman(session, intervention, handoff);
     }
 
     if (intervention === null && terminalTool === null && Date.now() - startedAt >= timeoutMs) {
@@ -237,6 +342,7 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
         "timeout",
         `Discovery timed out after ${timeoutMs}ms`,
       );
+      await pauseForHuman(session, intervention, handoff);
     }
 
     const compileCtx = {
@@ -270,17 +376,76 @@ export async function runDiscovery(opts: RunDiscoveryOptions): Promise<{
         ? { status: "intervention", intervention, recordings: [...recorder.all()] }
         : {
             status: "completed",
-            terminalTool: terminalTool ?? { tool: "done", summary: "finished", checkpointDescription: "", outputs },
+            terminalTool:
+              terminalTool ?? {
+                tool: "done",
+                summary: "finished",
+                checkpointDescription: "",
+                outputs,
+              },
             recordings: [...recorder.all()],
             outputs,
           };
 
-    return { result, artifact, evidenceDir };
+    return { result, artifact, evidenceDir, session };
+  } catch (err) {
+    if (err instanceof SessionAbortedError) {
+      const abortIntervention = interventionForReason(
+        { runId, stepIndex },
+        "model_escalate",
+        err.message,
+        "Operator aborted the session",
+      );
+      const artifact = compileMechanical(recorder.all(), {
+        discoveryRunId: runId,
+        model: llm.model,
+        recordedBy: "discovery-agent",
+        targetUrl: opts.targetUrl,
+        baseUrl,
+        artifactId: opts.artifactId,
+      });
+      return {
+        result: {
+          status: "intervention",
+          intervention: abortIntervention,
+          recordings: [...recorder.all()],
+        },
+        artifact,
+        evidenceDir,
+        session,
+      };
+    }
+    throw err;
   } finally {
+    if (ownsSession) {
+      await session.close();
+    }
     if (ownsSurface && "close" in surface && typeof surface.close === "function") {
       await surface.close();
     }
   }
+}
+
+async function pauseForHuman(
+  session: SessionManagerType,
+  req: InterventionRequest,
+  handoff: boolean,
+): Promise<"resumed" | "aborted" | "terminal"> {
+  if (!handoff) return "terminal";
+  return (await session.requestIntervention(req)) === "resumed" ? "resumed" : "aborted";
+}
+
+function resetStuckProgress(state: ReturnType<typeof createStuckState>): void {
+  state.observationHashes = [];
+  state.actionPairs = [];
+  state.consecutivePolicyRejections = 0;
+}
+
+function summarizeTool(call: AgentToolCall): string {
+  if ("ref" in call && typeof call.ref === "number") {
+    return `${call.tool} ref=${call.ref}`;
+  }
+  return call.tool;
 }
 
 export function newRunId(): string {
@@ -338,7 +503,7 @@ async function executeToolCall(
   }
 }
 
-function toGatedCall(call: AgentToolCall, observation: Observation) {
+function toGatedCall(call: AgentToolCall) {
   switch (call.tool) {
     case "navigate":
       return { kind: "navigate" as const, url: call.url };

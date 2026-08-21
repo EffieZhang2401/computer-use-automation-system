@@ -113,6 +113,13 @@ function defaultHumanGuidance(reason: StuckReason): string {
       return "Review policy settings or complete the blocked action manually, then hand back.";
     case "token_budget":
       return "Discovery exceeded the token budget — review partial recordings and continue manually if needed.";
+    case "irreversible":
+      return "Please complete this irreversible step manually in the open browser window, then click Hand back & resume.";
+    case "model_escalate":
+      return "Follow the model's guidance in the open browser window, then hand control back.";
+    case "max_steps":
+    case "timeout":
+      return "Review the run evidence and decide whether to resume or abort.";
     default:
       return "Review the run evidence and decide whether to resume or abort.";
   }

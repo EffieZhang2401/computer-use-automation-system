@@ -17,6 +17,10 @@ import {
 } from "../core/schema.js";
 import { redactForLog, type SensitivitySpec } from "../core/redactor.js";
 import { PolicyGate } from "../policy/gate.js";
+import {
+  SessionManager,
+  type SessionManager as SessionManagerType,
+} from "../session/manager.js";
 import type { AssertionEnv } from "../surface/assertions.js";
 import { WebSurface } from "../surface/web-surface.js";
 import {
@@ -34,6 +38,7 @@ export type ReplayOptions = {
   authCookies?: Array<{ name: string; value: string; url: string }>;
   /** Demo-app fault inject consumed on the next applicable request (e.g. search POST). */
   injectMode?: string;
+  session?: SessionManagerType;
 };
 
 export type ReplaySurface = WebSurface;
@@ -57,6 +62,16 @@ export async function runReplay(
       headless: opts.headless ?? true,
       cookies: opts.authCookies,
     }));
+
+  const session =
+    opts.session ??
+    SessionManager.create({
+      runId,
+      capabilityId: artifact.id,
+      goal: artifact.description,
+      evidenceDir,
+    });
+  const ownsSession = opts.session === undefined;
 
   const gate = new PolicyGate(artifact.policy, {
     mode: "replay",
@@ -84,6 +99,7 @@ export async function runReplay(
     });
 
     const entryUrl = substituteTemplate(artifact.target.entryPoint, opts.params);
+    await session.assertAutomationControl();
     await replaySurface.act({ kind: "navigate", url: entryUrl });
     await replaySurface.observe();
 
@@ -152,6 +168,7 @@ export async function runReplay(
           break;
         }
 
+        await session.assertAutomationControl();
         const actionOutcome = await executeStepAction(replaySurface, step, opts.params);
         if (actionOutcome.kind === "locator_unresolved") {
           terminalResult = await finishFailed(
@@ -222,6 +239,7 @@ export async function runReplay(
               break;
             }
             if (classification.kind === "recovery") {
+              await session.assertAutomationControl();
               const recovered = await applyRecovery(
                 replaySurface,
                 classification.rule,
@@ -272,6 +290,7 @@ export async function runReplay(
         }
 
         if (classification.kind === "recovery") {
+          await session.assertAutomationControl();
           const recovered = await applyRecovery(replaySurface, classification.rule, retries);
           if (recovered) {
             retries += 1;
@@ -381,6 +400,9 @@ export async function runReplay(
     });
     return parsed;
   } finally {
+    if (ownsSession) {
+      await session.close();
+    }
     if (ownsSurface) {
       await replaySurface.close();
     }

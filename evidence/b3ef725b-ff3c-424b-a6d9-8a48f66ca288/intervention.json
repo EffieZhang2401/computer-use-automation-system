@@ -1,0 +1,36 @@
+{
+  "runId": "b3ef725b-ff3c-424b-a6d9-8a48f66ca288",
+  "sessionId": "b3ef725b-ff3c-424b-a6d9-8a48f66ca288",
+  "reason": "no_progress",
+  "message": "Observation unchanged for 3 consecutive steps",
+  "stepIndex": 2,
+  "url": "http://localhost:3100/transfers",
+  "observationHash": "53f250fa190ac147c94205c2a3a4670bb7d62ab67b39d06269374bccc126ad91",
+  "whatHumanShouldDo": "Review the current page state and either take control to unblock the UI or adjust the goal.",
+  "goal": "Post a wire transfer for member Jane",
+  "requestedAt": "2026-08-21T18:59:31.445Z",
+  "controlTransitions": [
+    {
+      "from": "AUTOMATION",
+      "to": "PAUSED_AWAITING_HUMAN",
+      "action": "requestPause",
+      "at": "2026-08-21T18:59:31.445Z"
+    },
+    {
+      "from": "PAUSED_AWAITING_HUMAN",
+      "to": "HUMAN",
+      "action": "takeControl",
+      "at": "2026-08-21T18:59:52.235Z"
+    },
+    {
+      "from": "HUMAN",
+      "to": "AUTOMATION",
+      "action": "handBack",
+      "at": "2026-08-21T19:09:35.468Z"
+    }
+  ],
+  "takenControlAt": "2026-08-21T18:59:52.235Z",
+  "handedBackAt": "2026-08-21T19:09:35.468Z",
+  "humanNote": "Playwright window was black; handing back",
+  "outcome": "resumed"
+}

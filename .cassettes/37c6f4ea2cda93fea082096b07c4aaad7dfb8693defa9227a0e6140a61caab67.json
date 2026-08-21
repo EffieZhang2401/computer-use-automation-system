@@ -1,0 +1,40 @@
+{
+  "cacheKey": "37c6f4ea2cda93fea082096b07c4aaad7dfb8693defa9227a0e6140a61caab67",
+  "model": "gemini-3.5-flash-lite",
+  "promptVersion": "discovery-v1",
+  "request": {
+    "goal": "Post a wire transfer for member Jane",
+    "observation": {
+      "url": "http://localhost:3100/transfers",
+      "text": "url: http://localhost:3100/transfers\n",
+      "hash": "53f250fa190ac147c94205c2a3a4670bb7d62ab67b39d06269374bccc126ad91"
+    },
+    "history": [
+      {
+        "step": 0,
+        "toolCall": {
+          "tool": "navigate",
+          "url": "http://localhost:3100/transfers"
+        },
+        "result": "navigated",
+        "observationHashAfter": "53f250fa190ac147c94205c2a3a4670bb7d62ab67b39d06269374bccc126ad91"
+      }
+    ],
+    "runId": "b3ef725b-ff3c-424b-a6d9-8a48f66ca288",
+    "timestamp": "2026-08-21T18:59:30.845Z",
+    "model": "gemini-3.5-flash-lite",
+    "promptVersion": "discovery-v1"
+  },
+  "response": {
+    "toolCall": {
+      "tool": "navigate",
+      "url": "http://localhost:3100/transfers"
+    },
+    "usage": {
+      "inputTokens": 744,
+      "outputTokens": 24
+    },
+    "rawText": ""
+  },
+  "recordedAt": "2026-08-21T18:59:31.426Z"
+}

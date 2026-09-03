@@ -11,7 +11,7 @@ deterministically — no model in the decision loop.
 ## What this repo demonstrates
 
 - Discovery agent loop with a constrained tool schema 
-- Locator capture from the real DOM/a11y tree (the model never invents selectors)
+- Locator capture from the real DOM/a11y tree 
 - PolicyGate on every action (discovery and replay)
 - Deterministic replay with business outcomes vs hard failures
 - Human-in-the-loop escalation on the **same live browser session**
